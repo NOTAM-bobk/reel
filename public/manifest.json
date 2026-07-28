@@ -1,0 +1,20 @@
+{
+  "name": "reel — now showing",
+  "short_name": "reel",
+  "description": "Discover movies and shows, build your watchlist, and track what you've watched.",
+  "id": "/",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#FFFBF8",
+  "theme_color": "#B3391F",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["entertainment", "movies", "lifestyle"],
+  "icons": [
+    { "src": "/reel.png", "sizes": "any", "type": "image/png", "purpose": "any" },
+    { "src": "/reel.png", "sizes": "any", "type": "image/png", "purpose": "maskable" }
+  ]
+}
