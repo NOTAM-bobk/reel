@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#B3391F" />
+    <meta name="background-color" content="#FFFBF8" />
+    <meta name="description" content="Discover movies and shows, build your watchlist, and track what you've watched." />
+    <title>Reel — find what to watch</title>
+
+    <!-- PWA manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" href="/reel.png" />
+    <link rel="shortcut icon" href="/reel.png" />
+    <link rel="apple-touch-icon" href="/reel.png" />
+    <link rel="mask-icon" href="/reel.png" color="#B3391F" />
+
+    <!-- iOS install support -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Reel" />
+
+    <!-- Android / other -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="Reel" />
+    <meta name="msapplication-TileColor" content="#B3391F" />
+    <meta name="msapplication-TileImage" content="/reel.png" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {
+            // Registration failures shouldn't block the app.
+          })
+        })
+      }
+    </script>
+  </body>
+</html>
