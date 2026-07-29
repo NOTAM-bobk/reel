@@ -43,6 +43,20 @@
   --ease-bounce: cubic-bezier(.34,1.56,.64,1);
   --dur-fast: 0.15s;
   --dur-med: 0.25s;
+
+  /* Single source of truth for the app's content width. #root, the topbar,
+     tab bar, sheets, and the search overlay all read from this — bump it
+     at wider breakpoints below and every one of them adapts together. */
+  --app-max-width: 560px;
+  --grid-min: 108px;
+}
+
+@media (min-width: 720px) {
+  :root { --app-max-width: 760px; --grid-min: 130px; }
+}
+
+@media (min-width: 1080px) {
+  :root { --app-max-width: 1040px; --grid-min: 150px; }
 }
 
 * { box-sizing: border-box; }
@@ -56,7 +70,7 @@ html, body {
   overscroll-behavior-y: none;
 }
 
-#root { max-width: 560px; margin: 0 auto; min-height: 100vh; position: relative; background: var(--md-bg); }
+#root { max-width: var(--app-max-width); margin: 0 auto; min-height: 100vh; position: relative; background: var(--md-bg); transition: max-width var(--dur-med) var(--ease-standard); }
 
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; -webkit-tap-highlight-color: transparent; transition: transform var(--dur-fast) var(--ease-standard), opacity var(--dur-fast) var(--ease-standard); }
 button:active { transform: scale(0.96); }
@@ -72,7 +86,7 @@ img { display: block; max-width: 100%; }
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-.app { padding-bottom: 92px; min-height: 100vh; }
+.app { padding-bottom: calc(92px + env(safe-area-inset-bottom)); min-height: 100vh; }
 
 /* ============================================================
    Top bar
@@ -81,21 +95,23 @@ img { display: block; max-width: 100%; }
 .topbar {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 20px 20px 12px;
+  padding: calc(20px + env(safe-area-inset-top)) clamp(16px, 4vw, 28px) 12px;
   background: linear-gradient(var(--md-bg) 65%, rgba(255,251,248,0));
+  gap: 10px;
 }
 
 .brand {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 26px;
+  font-size: clamp(22px, 6vw, 26px);
   letter-spacing: -0.2px;
   display: flex; align-items: center; gap: 3px;
+  flex-shrink: 0;
 }
 
 .brand span {
   color: var(--md-primary);
-  font-size: 30px;
+  font-size: 1.15em;
   line-height: 0;
 }
 
@@ -108,12 +124,17 @@ img { display: block; max-width: 100%; }
   padding: 6px 12px;
   border-radius: var(--r-pill);
   letter-spacing: 0.2px;
+  white-space: nowrap;
 }
 
-.topbar-right { display: flex; align-items: center; gap: 10px; }
+@media (max-width: 359px) {
+  .brand-mark { display: none; }
+}
+
+.topbar-right { display: flex; align-items: center; gap: 10px; min-width: 0; }
 
 .account-btn {
-  width: 36px; height: 36px; border-radius: 50%;
+  width: 40px; height: 40px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   background: var(--md-primary-container); color: var(--md-on-primary-container);
   flex-shrink: 0;
@@ -129,16 +150,18 @@ img { display: block; max-width: 100%; }
 
 .tabbar {
   position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
-  width: 100%; max-width: 560px; display: flex;
+  width: 100%; max-width: var(--app-max-width); display: flex;
   background: var(--md-surface);
   border-top: 1px solid var(--md-outline);
   padding: 12px 14px calc(10px + env(safe-area-inset-bottom));
   z-index: 30;
   gap: 4px;
+  transition: max-width var(--dur-med) var(--ease-standard);
 }
 
 .tab {
   flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-height: 44px;
   padding: 6px 0 4px;
   color: var(--md-faint);
   font-family: var(--font-body);
@@ -169,10 +192,78 @@ img { display: block; max-width: 100%; }
 }
 
 /* ============================================================
+   FAB — square, M3 Expressive. A quick way into search from the
+   Discover tab without switching tabs. Rounded-square rather than
+   a circle/pill is the expressive-shape signal; the radius softens
+   further on press for a bit of squish.
+   ============================================================ */
+
+.fab-search {
+  position: fixed;
+  /* Tracks the real right edge of the centered #root at any viewport width:
+     0 extra offset on phones (content fills the viewport), and the leftover
+     margin once the viewport exceeds --app-max-width on bigger screens. */
+  right: calc(16px + (100vw - min(100vw, var(--app-max-width))) / 2);
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  width: 60px; height: 60px;
+  border-radius: 20px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--md-primary); color: var(--md-on-primary);
+  box-shadow: 0 6px 18px rgba(179,57,31,0.32), 0 2px 6px rgba(179,57,31,0.2);
+  z-index: 25;
+  animation: fab-in 0.3s var(--ease-bounce);
+  transition: border-radius 0.2s var(--ease-bounce), transform 0.15s var(--ease-standard), box-shadow var(--dur-med) var(--ease-standard);
+}
+
+.fab-search svg { width: 24px; height: 24px; stroke-width: 2.3; }
+
+.fab-search:active {
+  border-radius: 28px;
+  transform: scale(0.94);
+  box-shadow: 0 3px 10px rgba(179,57,31,0.28);
+}
+
+@keyframes fab-in { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.search-overlay {
+  position: fixed; inset: 0; z-index: 35;
+  background: var(--md-bg);
+  display: flex; flex-direction: column;
+  animation: fade-in 0.18s ease;
+}
+
+.search-overlay-top {
+  display: flex; align-items: center; justify-content: space-between;
+  max-width: var(--app-max-width); width: 100%; margin: 0 auto;
+  padding: calc(16px + env(safe-area-inset-top)) 20px 10px;
+  flex-shrink: 0;
+}
+
+.search-overlay-title { font-family: var(--font-display); font-weight: 600; font-size: 19px; }
+
+.search-overlay-close {
+  width: 38px; height: 38px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--md-surface-2); color: var(--md-on-surface);
+}
+.search-overlay-close svg { width: 15px; height: 15px; }
+
+.search-overlay-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+.search-empty { padding: 6px 0 20px; }
+.search-empty-icon {
+  width: 56px; height: 56px; border-radius: 50%; margin: 20px auto 4px;
+  background: var(--md-surface-2); display: flex; align-items: center; justify-content: center;
+}
+.search-empty-icon svg { width: 24px; height: 24px; color: var(--md-faint); }
+.suggest-wrap { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 0 24px; }
+.suggest-chip { background: var(--md-surface-1); }
+
+/* ============================================================
    Hero — expressive blob card
    ============================================================ */
 
-.hero-viewport { position: relative; padding: 0 20px 6px; margin-bottom: 30px; }
+.hero-viewport { position: relative; padding: 0 clamp(16px, 4vw, 28px) 6px; margin-bottom: 30px; }
 
 .hero-track {
   display: flex; touch-action: pan-y;
@@ -181,9 +272,14 @@ img { display: block; max-width: 100%; }
 
 .hero {
   position: relative; flex: 0 0 100%; width: 100%;
-  border-radius: var(--r-xl); overflow: hidden; aspect-ratio: 3/4;
+  border-radius: var(--r-xl); overflow: hidden;
+  aspect-ratio: 3/4; max-height: 62vh;
   background: var(--md-surface-2);
   box-shadow: 0 8px 24px rgba(179,57,31,0.14);
+}
+
+@media (min-width: 720px) {
+  .hero { aspect-ratio: 16/9; max-height: 480px; }
 }
 
 .hero img { width: 100%; height: 100%; object-fit: cover; }
@@ -195,7 +291,7 @@ img { display: block; max-width: 100%; }
 
 .hero-scrim { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(33,26,23,0) 40%, rgba(20,10,7,0.88) 100%); }
 
-.hero-content { position: absolute; left: 0; right: 0; bottom: 0; padding: 22px; animation: hero-content-in 0.5s var(--ease-standard); }
+.hero-content { position: absolute; left: 0; right: 0; bottom: 0; padding: clamp(16px, 4vw, 30px); animation: hero-content-in 0.5s var(--ease-standard); }
 
 @keyframes hero-content-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -205,7 +301,7 @@ img { display: block; max-width: 100%; }
   padding: 5px 12px; border-radius: var(--r-pill); display: inline-block; margin-bottom: 10px;
 }
 
-.hero-title { font-family: var(--font-display); font-weight: 600; font-size: 30px; line-height: 1.08; color: #fff; margin: 0 0 10px; }
+.hero-title { font-family: var(--font-display); font-weight: 600; font-size: clamp(24px, 6vw, 36px); line-height: 1.08; color: #fff; margin: 0 0 10px; overflow-wrap: break-word; }
 
 .hero-meta { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.75); margin-bottom: 16px; display: flex; gap: 8px; align-items: center; }
 
@@ -226,21 +322,22 @@ img { display: block; max-width: 100%; }
 
 .rail-section { margin-bottom: 32px; }
 
-.rail-head { display: flex; align-items: center; justify-content: space-between; padding: 0 20px; margin-bottom: 12px; }
+.rail-head { display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(16px, 4vw, 28px); margin-bottom: 12px; gap: 10px; }
 
-.rail-title { font-family: var(--font-display); font-weight: 600; font-size: 20px; }
+.rail-title { font-family: var(--font-display); font-weight: 600; font-size: clamp(18px, 4vw, 21px); }
 
 .rail-sub { font-size: 11.5px; font-weight: 600; color: var(--md-faint); margin-top: 1px; }
 
-.rail-title-wrap { display: flex; flex-direction: column; }
+.rail-title-wrap { display: flex; flex-direction: column; min-width: 0; }
 
 .rail-badge {
   font-family: var(--font-body); font-weight: 700; font-size: 10.5px;
   color: var(--md-tertiary); background: var(--md-tertiary-container);
   padding: 5px 11px; border-radius: var(--r-pill);
+  white-space: nowrap; flex-shrink: 0;
 }
 
-.rail { display: flex; gap: 12px; overflow-x: auto; padding: 0 20px; scroll-snap-type: x proximity; }
+.rail { display: flex; gap: 12px; overflow-x: auto; padding: 0 clamp(16px, 4vw, 28px); scroll-snap-type: x proximity; }
 
 /* ============================================================
    Poster cards
@@ -260,16 +357,19 @@ img { display: block; max-width: 100%; }
 .card-poster img { width: 100%; height: 100%; object-fit: cover; }
 
 .card-save {
-  position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 50%;
-  background: rgba(255,255,255,0.88); backdrop-filter: blur(4px);
+  position: absolute; top: 7px; right: 7px; width: 30px; height: 30px; border-radius: 50%;
+  background: rgba(255,255,255,0.92); backdrop-filter: blur(4px);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.12);
-  transition: transform var(--dur-fast) var(--ease-bounce);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.14);
+  transition: transform var(--dur-fast) var(--ease-bounce), background var(--dur-med) var(--ease-standard);
 }
 
 .card-save:active { transform: scale(0.8); }
 
-.card-save svg { width: 13px; height: 13px; }
+.card-save svg { width: 14px; height: 14px; }
+
+.save-icon-pop { display: inline-flex; align-items: center; justify-content: center; animation: save-pop 0.32s var(--ease-bounce); }
+@keyframes save-pop { from { transform: scale(0.4); opacity: 0.5; } to { transform: scale(1); opacity: 1; } }
 
 .card-watched-badge {
   position: absolute; bottom: 8px; left: 8px; width: 22px; height: 22px; border-radius: 50%;
@@ -311,8 +411,9 @@ img { display: block; max-width: 100%; }
 
 .btn {
   display: inline-flex; align-items: center; gap: 7px; padding: 12px 20px;
+  min-height: 44px;
   border-radius: var(--r-pill); font-size: 13.5px; font-weight: 700; white-space: nowrap;
-  transition: transform 0.15s ease;
+  transition: transform 0.15s ease, background var(--dur-med) var(--ease-standard), border-color var(--dur-med) var(--ease-standard), color var(--dur-med) var(--ease-standard);
 }
 
 .btn:active { transform: scale(0.96); }
@@ -321,17 +422,31 @@ img { display: block; max-width: 100%; }
 .btn-gold { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
 .btn-primary { background: var(--md-primary); color: var(--md-on-primary); }
 .btn-ghost { background: rgba(255,255,255,0.22); color: #fff; backdrop-filter: blur(8px); }
+.btn-ghost.is-saved { background: rgba(255,255,255,0.96); color: var(--md-primary); }
 .btn-outline { border: 1.5px solid var(--md-outline-strong); color: var(--md-on-surface); }
 .btn-secondary { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
 .btn-full { width: 100%; justify-content: center; }
-.btn-sm { padding: 8px 14px; font-size: 12px; }
+.btn-sm { padding: 8px 14px; min-height: 36px; font-size: 12px; }
 .btn-icon { padding: 10px; border-radius: 50%; }
+
+/* Dedicated save-to-watchlist treatment: quiet outline at rest so it
+   doesn't compete with the primary red used elsewhere, filled warm
+   container once saved — a clearer before/after than the old
+   primary <-> secondary color swap. */
+.btn-save {
+  background: var(--md-surface); color: var(--md-on-surface);
+  border: 1.5px solid var(--md-outline-strong);
+}
+.btn-save.is-saved {
+  background: var(--md-primary-container); color: var(--md-on-primary-container);
+  border-color: transparent;
+}
 
 /* ============================================================
    Search & filters
    ============================================================ */
 
-.search-wrap { padding: 4px 20px 14px; }
+.search-wrap { padding: 4px clamp(16px, 4vw, 28px) 14px; }
 
 .search-box {
   display: flex; align-items: center; gap: 10px;
@@ -340,23 +455,27 @@ img { display: block; max-width: 100%; }
 }
 
 .search-box svg { width: 17px; height: 17px; color: var(--md-faint); flex-shrink: 0; }
-.search-box input { flex: 1; background: none; border: none; font-size: 15px; font-weight: 500; outline: none; }
+.search-box input { flex: 1; min-width: 0; background: none; border: none; font-size: 16px; font-weight: 500; outline: none; }
 .search-box input::placeholder { color: var(--md-faint); }
 
-.filter-row { display: flex; gap: 8px; padding: 0 20px 18px; overflow-x: auto; }
+.filter-row { display: flex; gap: 8px; padding: 0 clamp(16px, 4vw, 28px) 18px; overflow-x: auto; }
 
 .chip {
   font-family: var(--font-body); font-weight: 700; font-size: 12px;
   padding: 9px 16px; border-radius: var(--r-pill);
   border: 1.5px solid var(--md-outline); color: var(--md-on-surface-variant);
   white-space: nowrap; flex-shrink: 0; background: var(--md-surface);
+  min-height: 36px; display: inline-flex; align-items: center;
   transition: background var(--dur-med) var(--ease-standard), border-color var(--dur-med) var(--ease-standard), color var(--dur-med) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
 }
 
 .chip:active { transform: scale(0.95); }
 .chip.active { border-color: var(--md-primary); color: var(--md-on-primary-container); background: var(--md-primary-container); }
 
-.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 10px; padding: 6px 20px 20px; }
+/* auto-fill + minmax means the grid finds its own column count at any
+   width — 3-up on a narrow phone, more as the viewport (and --grid-min)
+   grows — without a wall of manual breakpoints. */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--grid-min), 1fr)); gap: 16px 10px; padding: 6px clamp(16px, 4vw, 28px) 20px; }
 .grid .card { flex-basis: auto; width: 100%; }
 .grid .card-poster { width: 100%; height: auto; aspect-ratio: 2/3; }
 
@@ -373,11 +492,16 @@ img { display: block; max-width: 100%; }
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 0; top: 30%; z-index: 41; background: var(--md-bg);
   overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-  max-width: 560px; margin: 0 auto;
+  max-width: var(--app-max-width); margin: 0 auto;
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   box-shadow: 0 -8px 30px rgba(33,26,23,0.18);
   animation: sheet-rise 0.32s cubic-bezier(.2,.9,.25,1.1);
   touch-action: pan-y;
+}
+
+@media (min-width: 720px) {
+  .sheet { top: 8vh; bottom: 8vh; border-radius: var(--r-xl); box-shadow: 0 20px 60px rgba(33,26,23,0.28); }
+  .sheet-body { border-radius: 0; }
 }
 
 @keyframes rise { from { transform: translateY(28px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -393,7 +517,7 @@ img { display: block; max-width: 100%; }
 .sheet-handle-wrap:active .sheet-handle { width: 54px; }
 
 .sheet-close {
-  position: absolute; top: 8px; right: 14px; z-index: 7; width: 34px; height: 34px; border-radius: 50%;
+  position: absolute; top: 8px; right: 14px; z-index: 7; width: 40px; height: 40px; border-radius: 50%;
   background: rgba(33,26,23,0.55); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center;
 }
 
@@ -403,14 +527,14 @@ img { display: block; max-width: 100%; }
 
 .sheet-backdrop-img { width: 100%; aspect-ratio: 16/10; object-fit: cover; background: var(--md-surface-2); }
 
-.sheet-body { padding: 22px 20px 40px; margin-top: -40px; position: relative; background: var(--md-bg); border-radius: var(--r-xl) var(--r-xl) 0 0; }
+.sheet-body { padding: 22px clamp(18px, 4vw, 28px) 40px; margin-top: -40px; position: relative; background: var(--md-bg); border-radius: var(--r-xl) var(--r-xl) 0 0; }
 
 .sheet-poster-row { display: flex; gap: 14px; margin-bottom: 18px; }
 
 .sheet-poster { width: 96px; height: 144px; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--md-outline); background: var(--md-surface-2); flex-shrink: 0; box-shadow: 0 4px 14px rgba(82,68,63,0.14); }
 .sheet-poster img { width: 100%; height: 100%; object-fit: cover; }
 
-.sheet-title { font-family: var(--font-display); font-weight: 600; font-size: 25px; line-height: 1.1; margin: 6px 0 8px; }
+.sheet-title { font-family: var(--font-display); font-weight: 600; font-size: clamp(21px, 5vw, 28px); line-height: 1.1; margin: 6px 0 8px; overflow-wrap: break-word; }
 
 .sheet-meta { font-size: 12px; font-weight: 600; color: var(--md-on-surface-variant); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
@@ -498,7 +622,7 @@ img { display: block; max-width: 100%; }
 .drawer-backdrop { position: fixed; inset: 0; background: rgba(33,26,23,0.4); z-index: 50; animation: fade-in 0.2s ease; }
 
 .drawer {
-  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: 560px;
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); width: 100%; max-width: var(--app-max-width);
   background: var(--md-surface); border-top: 1px solid var(--md-outline);
   border-radius: 28px 28px 0 0; z-index: 51; padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
   max-height: 78vh; overflow-y: auto; animation: rise 0.25s cubic-bezier(.2,.9,.25,1.1);
