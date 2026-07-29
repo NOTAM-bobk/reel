@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, memo, lazy, Suspense } from 'react'
 import { Icon } from './icons.jsx'
-import AccountSheet from './Account.jsx'
+const AccountSheet = lazy(() => import('./Account.jsx'))
 
 /* ============================================================
    TMDB API
@@ -13,11 +13,26 @@ const REGION = 'US'
 const img = (path, size = 'w342') =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null
 
+// In-memory response cache. Switching tabs (Discover <-> Search <-> Watchlist)
+// re-mounts views that hit the same endpoints — this makes that instant
+// instead of re-fetching, and de-dupes concurrent identical requests.
+const tmdbCache = new Map()
+const TMDB_CACHE_TTL = 5 * 60 * 1000
+
 async function tmdb(path, params = {}) {
   const qs = new URLSearchParams({ api_key: TMDB_KEY, language: 'en-US', ...params })
-  const res = await fetch(`${BASE}${path}?${qs.toString()}`)
-  if (!res.ok) throw new Error(`TMDB ${res.status}`)
-  return res.json()
+  const url = `${BASE}${path}?${qs.toString()}`
+  const hit = tmdbCache.get(url)
+  if (hit) {
+    if (hit.promise) return hit.promise
+    if (Date.now() - hit.t < TMDB_CACHE_TTL) return hit.data
+  }
+  const promise = fetch(url)
+    .then((res) => { if (!res.ok) throw new Error(`TMDB ${res.status}`); return res.json() })
+    .then((data) => { tmdbCache.set(url, { data, t: Date.now() }); return data })
+    .catch((err) => { tmdbCache.delete(url); throw err })
+  tmdbCache.set(url, { promise })
+  return promise
 }
 
 const yearOf = (item) => {
@@ -113,7 +128,29 @@ function ScoreRing({ value = 0, size = 38 }) {
   )
 }
 
-function PosterCard({ item, watchlist, onOpen, showWatchedMark }) {
+// Save/unsave button used on posters, hero cards, and the detail sheet.
+// A remounting inner span (keyed on saved state) gets a small pop animation
+// on every toggle, so the action always reads as a clear, deliberate change.
+function SaveToggle({ item, watchlist, className = 'card-save' }) {
+  const mediaType = mediaTypeOf(item)
+  const saved = watchlist.has(item.id, mediaType)
+  return (
+    <span
+      className={className}
+      role="button"
+      tabIndex={0}
+      aria-label={saved ? 'Remove from watchlist' : 'Save to watchlist'}
+      onClick={(e) => { e.stopPropagation(); watchlist.toggle(item) }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); watchlist.toggle(item) } }}
+    >
+      <span key={saved ? 'on' : 'off'} className="save-icon-pop">
+        {saved ? <Icon.bookmarkFilled style={{ color: '#B3391F' }} /> : <Icon.bookmark style={{ color: '#211A17' }} />}
+      </span>
+    </span>
+  )
+}
+
+const PosterCard = memo(function PosterCard({ item, watchlist, onOpen, showWatchedMark }) {
   const mediaType = mediaTypeOf(item)
   const saved = watchlist.has(item.id, mediaType)
   const record = watchlist.get(item.id, mediaType)
@@ -121,10 +158,8 @@ function PosterCard({ item, watchlist, onOpen, showWatchedMark }) {
   return (
     <div className="card">
       <button className="card-poster" onClick={() => onOpen(item)} aria-label={`Open ${titleOf(item)}`}>
-        {item.poster_path ? <img src={img(item.poster_path)} alt="" loading="lazy" /> : <div className="card-empty-poster">{titleOf(item)}</div>}
-        <span className="card-save" role="button" onClick={(e) => { e.stopPropagation(); watchlist.toggle(item) }}>
-          {saved ? <Icon.bookmarkFilled style={{ color: '#B3391F' }} /> : <Icon.bookmark style={{ color: '#211A17' }} />}
-        </span>
+        {item.poster_path ? <img src={img(item.poster_path)} alt="" loading="lazy" decoding="async" /> : <div className="card-empty-poster">{titleOf(item)}</div>}
+        <SaveToggle item={item} watchlist={watchlist} />
         {isWatched && (
           <span className="card-watched-badge"><Icon.check /></span>
         )}
@@ -142,9 +177,9 @@ function PosterCard({ item, watchlist, onOpen, showWatchedMark }) {
       <div className="card-year">{yearOf(item)} · {mediaType === 'tv' ? 'Series' : 'Film'}</div>
     </div>
   )
-}
+})
 
-function Rail({ title, sub, badge, items, loading, watchlist, onOpen }) {
+const Rail = memo(function Rail({ title, sub, badge, items, loading, watchlist, onOpen }) {
   if (!loading && (!items || items.length === 0)) return null
   return (
     <div className="rail-section">
@@ -164,9 +199,9 @@ function Rail({ title, sub, badge, items, loading, watchlist, onOpen }) {
       )}
     </div>
   )
-}
+})
 
-function Top10Rail({ title, sub, items, loading, watchlist, onOpen }) {
+const Top10Rail = memo(function Top10Rail({ title, sub, items, loading, watchlist, onOpen }) {
   if (!loading && (!items || items.length === 0)) return null
   return (
     <div className="rail-section">
@@ -185,10 +220,8 @@ function Top10Rail({ title, sub, items, loading, watchlist, onOpen }) {
             <div className="top10-item" key={`${mediaTypeOf(item)}-${item.id}`}>
               <span className="top10-num">{i + 1}</span>
               <button className="card-poster" onClick={() => onOpen(item)} aria-label={`Open ${titleOf(item)}`}>
-                {item.poster_path ? <img src={img(item.poster_path)} alt="" loading="lazy" /> : <div className="card-empty-poster">{titleOf(item)}</div>}
-                <span className="card-save" role="button" onClick={(e) => { e.stopPropagation(); watchlist.toggle(item) }}>
-                  {watchlist.has(item.id, mediaTypeOf(item)) ? <Icon.bookmarkFilled style={{ color: '#B3391F' }} /> : <Icon.bookmark style={{ color: '#211A17' }} />}
-                </span>
+                {item.poster_path ? <img src={img(item.poster_path)} alt="" loading="lazy" decoding="async" /> : <div className="card-empty-poster">{titleOf(item)}</div>}
+                <SaveToggle item={item} watchlist={watchlist} />
               </button>
               <div className="card-title">{titleOf(item)}</div>
               <div className="card-year">{yearOf(item)}</div>
@@ -198,7 +231,7 @@ function Top10Rail({ title, sub, items, loading, watchlist, onOpen }) {
       )}
     </div>
   )
-}
+})
 
 /* ============================================================
    Detail sheet
@@ -284,7 +317,7 @@ function DetailSheet({ item, onClose, watchlist }) {
         </div>
 
         {item.backdrop_path || data?.backdrop_path ? (
-          <img className="sheet-backdrop-img" src={img(data?.backdrop_path || item.backdrop_path, 'w780')} alt="" />
+          <img className="sheet-backdrop-img" src={img(data?.backdrop_path || item.backdrop_path, 'w780')} alt="" decoding="async" fetchPriority="high" />
         ) : <div className="sheet-backdrop-img" />}
 
         <div className="sheet-body">
@@ -309,8 +342,10 @@ function DetailSheet({ item, onClose, watchlist }) {
           )}
 
           <div className="actions-row">
-            <button className={`btn ${saved ? 'btn-secondary' : 'btn-primary'}`} onClick={() => watchlist.toggle(fullItem)}>
-              {saved ? <Icon.bookmarkFilled /> : <Icon.bookmark />}
+            <button className={`btn btn-save ${saved ? 'is-saved' : ''}`} onClick={() => watchlist.toggle(fullItem)}>
+              <span key={saved ? 'on' : 'off'} className="save-icon-pop">
+                {saved ? <Icon.bookmarkFilled /> : <Icon.bookmark />}
+              </span>
               {saved ? 'Saved' : 'Save to watchlist'}
             </button>
             <button className={`btn ${isWatched ? 'btn-secondary' : 'btn-outline'}`} onClick={() => { if (!saved) watchlist.toggle(fullItem); watchlist.setWatched(fullItem, !isWatched) }}>
@@ -455,7 +490,7 @@ function HeroCarousel({ items, loading, watchlist, onOpen }) {
       >
         {items.map((h, i) => (
           <div className="hero" key={`${mediaTypeOf(h)}-${h.id}`}>
-            <img src={img(h.backdrop_path || h.poster_path, 'w780')} alt="" />
+            <img src={img(h.backdrop_path || h.poster_path, 'w780')} alt="" decoding="async" fetchPriority={i === 0 ? 'high' : 'auto'} loading={i === 0 ? 'eager' : 'lazy'} />
             <div className="hero-scrim" />
             <div className="hero-content">
               <span className="hero-eyebrow">No. {i + 1} this week</span>
@@ -463,8 +498,10 @@ function HeroCarousel({ items, loading, watchlist, onOpen }) {
               <div className="hero-meta"><span>{yearOf(h)}</span><span className="dot">·</span><span>{mediaTypeOf(h) === 'tv' ? 'Series' : 'Film'}</span></div>
               <div className="hero-actions">
                 <button className="btn btn-gold" onClick={() => onOpen(h)}><Icon.play /> View</button>
-                <button className="btn btn-ghost" onClick={() => watchlist.toggle(h)}>
-                  {watchlist.has(h.id, mediaTypeOf(h)) ? <Icon.bookmarkFilled /> : <Icon.bookmark />}
+                <button className={`btn btn-ghost ${watchlist.has(h.id, mediaTypeOf(h)) ? 'is-saved' : ''}`} onClick={() => watchlist.toggle(h)}>
+                  <span key={watchlist.has(h.id, mediaTypeOf(h)) ? 'on' : 'off'} className="save-icon-pop">
+                    {watchlist.has(h.id, mediaTypeOf(h)) ? <Icon.bookmarkFilled /> : <Icon.bookmark />}
+                  </span>
                   {watchlist.has(h.id, mediaTypeOf(h)) ? 'Saved' : 'Save'}
                 </button>
               </div>
@@ -509,7 +546,8 @@ function DiscoverView({ watchlist, onOpen }) {
 
   useEffect(() => {
     let alive = true
-    Promise.all([
+    const ok = (r) => (r.status === 'fulfilled' ? (r.value.results || []) : [])
+    Promise.allSettled([
       tmdb('/trending/all/week'),
       tmdb('/trending/movie/day'),
       tmdb('/trending/tv/day'),
@@ -521,21 +559,24 @@ function DiscoverView({ watchlist, onOpen }) {
       tmdb('/tv/airing_today'),
       ...GENRES_CURATED.map((g) => tmdb('/discover/movie', { with_genres: g.movieId, sort_by: 'popularity.desc' })),
     ]).then(([t, tm, tt, np, pm, pt, up, tr, at, ...genreResults]) => {
+      // allSettled means one flaky endpoint (rate limit, network blip) no
+      // longer blanks every rail on the page — each section just falls
+      // back to empty and quietly hides itself.
       if (!alive) return
-      setTrending(t.results || [])
-      setTop10Movies(tm.results || [])
-      setTop10Tv(tt.results || [])
-      setNowPlaying(np.results || [])
-      setPopularMovies(pm.results || [])
-      setPopularTv(pt.results || [])
-      setUpcoming(up.results || [])
-      setTopRated(tr.results || [])
-      setAiringToday(at.results || [])
+      setTrending(ok(t))
+      setTop10Movies(ok(tm))
+      setTop10Tv(ok(tt))
+      setNowPlaying(ok(np))
+      setPopularMovies(ok(pm))
+      setPopularTv(ok(pt))
+      setUpcoming(ok(up))
+      setTopRated(ok(tr))
+      setAiringToday(ok(at))
       const rails = {}
-      GENRES_CURATED.forEach((g, i) => { rails[g.name] = genreResults[i]?.results || [] })
+      GENRES_CURATED.forEach((g, i) => { rails[g.name] = ok(genreResults[i]) })
       setGenreRails(rails)
       setLoading(false)
-    }).catch(() => setLoading(false))
+    })
     return () => { alive = false }
   }, [])
 
@@ -579,151 +620,119 @@ function DiscoverView({ watchlist, onOpen }) {
 }
 
 /* ============================================================
-   Browse / Search tab
+   Search tab — search only, on purpose. No default browse grid:
+   an empty query shows a prompt (plus a few trending shortcuts),
+   never a silent discover feed standing in for search results.
    ============================================================ */
 
-function FilterDrawer({ open, onClose, mediaType, setMediaType, genres, activeGenre, setActiveGenre, providers, activeProvider, setActiveProvider }) {
-  if (!open) return null
-  return (
-    <>
-      <div className="drawer-backdrop" onClick={onClose} />
-      <div className="drawer">
-        <div className="drawer-handle" />
-        <div className="drawer-title">Filter the shelf</div>
-        <div className="filter-group">
-          <div className="filter-group-label">Type</div>
-          <div className="chip-wrap">
-            {['all', 'movie', 'tv'].map((t) => (
-              <button key={t} className={`chip ${mediaType === t ? 'active' : ''}`} onClick={() => setMediaType(t)}>
-                {t === 'all' ? 'Everything' : t === 'movie' ? 'Films' : 'Series'}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="filter-group">
-          <div className="filter-group-label">Genre</div>
-          <div className="chip-wrap">
-            <button className={`chip ${!activeGenre ? 'active' : ''}`} onClick={() => setActiveGenre(null)}>Any</button>
-            {genres.map((g) => (
-              <button key={g.name} className={`chip ${activeGenre === g.name ? 'active' : ''}`} onClick={() => setActiveGenre(g.name)}>{g.name}</button>
-            ))}
-          </div>
-        </div>
-        <div className="filter-group">
-          <div className="filter-group-label">Streaming service</div>
-          <div className="chip-wrap">
-            <button className={`chip ${!activeProvider ? 'active' : ''}`} onClick={() => setActiveProvider(null)}>Any</button>
-            {providers.map((p) => (
-              <button key={p.provider_id} className={`chip ${activeProvider === p.provider_id ? 'active' : ''}`} onClick={() => setActiveProvider(p.provider_id)}>{p.provider_name}</button>
-            ))}
-          </div>
-        </div>
-        <div className="drawer-actions">
-          <button className="btn btn-outline btn-full" onClick={() => { setMediaType('all'); setActiveGenre(null); setActiveProvider(null) }}>Clear</button>
-          <button className="btn btn-primary btn-full" onClick={onClose}>Show results</button>
-        </div>
-      </div>
-    </>
-  )
-}
-
-function BrowseView({ watchlist, onOpen }) {
+function SearchView({ watchlist, onOpen, autoFocus }) {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
-  const [drawerOpen, setDrawerOpen] = useState(false)
-
   const [mediaType, setMediaType] = useState('all')
-  const [movieGenres, setMovieGenres] = useState([])
-  const [tvGenres, setTvGenres] = useState([])
-  const [activeGenre, setActiveGenre] = useState(null)
-  const [providers, setProviders] = useState([])
-  const [activeProvider, setActiveProvider] = useState(null)
-
+  const [suggestions, setSuggestions] = useState([])
   const requestId = useRef(0)
 
   useEffect(() => {
-    tmdb('/genre/movie/list').then((d) => setMovieGenres(d.genres || [])).catch(() => {})
-    tmdb('/genre/tv/list').then((d) => setTvGenres(d.genres || [])).catch(() => {})
-    Promise.all([
-      tmdb('/watch/providers/movie', { watch_region: REGION }),
-      tmdb('/watch/providers/tv', { watch_region: REGION }),
-    ]).then(([m, t]) => {
-      const merged = [...(m.results || []), ...(t.results || [])]
-      const seen = new Map()
-      merged.forEach((p) => { if (!seen.has(p.provider_id)) seen.set(p.provider_id, p) })
-      const list = Array.from(seen.values()).sort((a, b) => (a.display_priority || 99) - (b.display_priority || 99))
-      setProviders(list.slice(0, 20))
-    }).catch(() => {})
+    let alive = true
+    tmdb('/trending/all/day').then((d) => { if (alive) setSuggestions((d.results || []).slice(0, 8)) }).catch(() => {})
+    return () => { alive = false }
   }, [])
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), 350)
+    const t = setTimeout(() => setDebounced(query.trim()), 300)
     return () => clearTimeout(t)
   }, [query])
 
-  const genreOptions = useMemo(() => {
-    const names = new Set(); const list = []
-    ;[...movieGenres, ...tvGenres].forEach((g) => { if (!names.has(g.name)) { names.add(g.name); list.push(g) } })
-    return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [movieGenres, tvGenres])
-
   useEffect(() => {
     const id = ++requestId.current
+    if (!debounced) { setResults([]); setLoading(false); return }
     setLoading(true)
-    async function run() {
-      if (debounced) {
-        const d = await tmdb('/search/multi', { query: debounced, include_adult: 'false' })
+    tmdb('/search/multi', { query: debounced, include_adult: 'false' })
+      .then((d) => {
+        if (id !== requestId.current) return
         let list = (d.results || []).filter((r) => r.media_type === 'movie' || r.media_type === 'tv')
         if (mediaType !== 'all') list = list.filter((r) => r.media_type === mediaType)
-        return list
-      }
-      const movieGenreId = activeGenre ? movieGenres.find((g) => g.name === activeGenre)?.id : null
-      const tvGenreId = activeGenre ? tvGenres.find((g) => g.name === activeGenre)?.id : null
-      const calls = []
-      if (mediaType === 'all' || mediaType === 'movie') {
-        calls.push(tmdb('/discover/movie', { sort_by: 'popularity.desc', watch_region: REGION, ...(activeProvider ? { with_watch_providers: activeProvider } : {}), ...(movieGenreId ? { with_genres: movieGenreId } : {}) }).then((d) => (d.results || []).map((r) => ({ ...r, media_type: 'movie' }))))
-      }
-      if (mediaType === 'all' || mediaType === 'tv') {
-        calls.push(tmdb('/discover/tv', { sort_by: 'popularity.desc', watch_region: REGION, ...(activeProvider ? { with_watch_providers: activeProvider } : {}), ...(tvGenreId ? { with_genres: tvGenreId } : {}) }).then((d) => (d.results || []).map((r) => ({ ...r, media_type: 'tv' }))))
-      }
-      const settled = await Promise.all(calls)
-      return settled.flat().sort((a, b) => (b.popularity || 0) - (a.popularity || 0))
-    }
-    run().then((list) => { if (id === requestId.current) { setResults(list); setLoading(false) } }).catch(() => { if (id === requestId.current) setLoading(false) })
-  }, [debounced, mediaType, activeGenre, activeProvider, movieGenres, tvGenres])
-
-  const activeCount = [mediaType !== 'all', !!activeGenre, !!activeProvider].filter(Boolean).length
+        setResults(list)
+        setLoading(false)
+      })
+      .catch(() => { if (id === requestId.current) setLoading(false) })
+  }, [debounced, mediaType])
 
   return (
     <div>
       <div className="search-wrap">
         <div className="search-box">
           <Icon.search />
-          <input placeholder="Search films, series, people…" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input
+            autoFocus={autoFocus}
+            placeholder="Search films and series…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            enterKeyHint="search"
+            inputMode="search"
+          />
           {query && <button onClick={() => setQuery('')} aria-label="Clear search"><Icon.x style={{ width: 14, height: 14, color: '#8C7A73' }} /></button>}
         </div>
       </div>
 
-      <div className="filter-row">
-        <button className={`chip ${activeCount ? 'active' : ''}`} onClick={() => setDrawerOpen(true)}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}><Icon.sliders style={{ width: 12, height: 12 }} /> Filters{activeCount ? ` · ${activeCount}` : ''}</span>
-        </button>
-        {debounced && <span className="chip" style={{ opacity: 0.6 }}>filters apply once search is cleared</span>}
-      </div>
+      {debounced && (
+        <div className="filter-row">
+          {['all', 'movie', 'tv'].map((t) => (
+            <button key={t} className={`chip ${mediaType === t ? 'active' : ''}`} onClick={() => setMediaType(t)}>
+              {t === 'all' ? 'Everything' : t === 'movie' ? 'Films' : 'Series'}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {loading ? (
+      {!debounced ? (
+        <div className="search-empty">
+          <div className="search-empty-icon"><Icon.search /></div>
+          <div className="state-msg"><strong>Find something to watch</strong>Search by title — or try what's trending right now.</div>
+          {suggestions.length > 0 && (
+            <div className="suggest-wrap">
+              {suggestions.map((s) => (
+                <button key={`${mediaTypeOf(s)}-${s.id}`} className="chip suggest-chip" onClick={() => setQuery(titleOf(s))}>
+                  {titleOf(s)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : loading ? (
         <div className="grid">{[...Array(9)].map((_, i) => <div key={i} className="skel-card" style={{ width: '100%', aspectRatio: '2/3' }} />)}</div>
       ) : results.length === 0 ? (
-        <div className="state-msg"><strong>Nothing here yet</strong>{debounced ? 'No matches for that search.' : 'Try loosening a filter or two.'}</div>
+        <div className="state-msg"><strong>No matches</strong>Try a different title or spelling.</div>
       ) : (
         <div className="grid">
           {results.map((item) => <PosterCard key={`${mediaTypeOf(item)}-${item.id}`} item={item} watchlist={watchlist} onOpen={onOpen} />)}
         </div>
       )}
+    </div>
+  )
+}
 
-      <FilterDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} mediaType={mediaType} setMediaType={setMediaType} genres={genreOptions} activeGenre={activeGenre} setActiveGenre={setActiveGenre} providers={providers} activeProvider={activeProvider} setActiveProvider={setActiveProvider} />
+// Full-screen search reachable from the Discover tab's FAB, without leaving
+// the tab you were on. Same SearchView, just presented as an overlay with
+// its own close control and an auto-focused input.
+function SearchOverlay({ onClose, watchlist, onOpen }) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  return (
+    <div className="search-overlay">
+      <div className="search-overlay-top">
+        <div className="search-overlay-title">Search</div>
+        <button className="search-overlay-close" onClick={onClose} aria-label="Close search"><Icon.x /></button>
+      </div>
+      <div className="search-overlay-body">
+        <SearchView watchlist={watchlist} onOpen={onOpen} autoFocus />
+      </div>
     </div>
   )
 }
@@ -795,7 +804,12 @@ export default function App() {
   const [tab, setTab] = useState('discover')
   const [selected, setSelected] = useState(null)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const watchlist = useWatchlist()
+
+  // The FAB is a Discover-tab shortcut into search, not a replacement for
+  // the Search tab — hide it once something is already covering the screen.
+  const showFab = tab === 'discover' && !selected && !accountOpen && !searchOpen
 
   return (
     <div className="app">
@@ -810,18 +824,29 @@ export default function App() {
       </div>
 
       {tab === 'discover' && <DiscoverView watchlist={watchlist} onOpen={setSelected} />}
-      {tab === 'browse' && <BrowseView watchlist={watchlist} onOpen={setSelected} />}
+      {tab === 'search' && <SearchView watchlist={watchlist} onOpen={setSelected} />}
       {tab === 'watchlist' && <WatchlistView watchlist={watchlist} onOpen={setSelected} />}
 
+      {showFab && (
+        <button className="fab-search" onClick={() => setSearchOpen(true)} aria-label="Search">
+          <Icon.search />
+        </button>
+      )}
+
       {selected && <DetailSheet item={selected} onClose={() => setSelected(null)} watchlist={watchlist} />}
-      {accountOpen && <AccountSheet onClose={() => setAccountOpen(false)} />}
+      {accountOpen && (
+        <Suspense fallback={null}>
+          <AccountSheet onClose={() => setAccountOpen(false)} />
+        </Suspense>
+      )}
+      {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} watchlist={watchlist} onOpen={setSelected} />}
 
       <nav className="tabbar">
         <button className={`tab ${tab === 'discover' ? 'active' : ''}`} onClick={() => setTab('discover')}>
           <span className="tab-icon-wrap"><Icon.film /></span>Discover
         </button>
-        <button className={`tab ${tab === 'browse' ? 'active' : ''}`} onClick={() => setTab('browse')}>
-          <span className="tab-icon-wrap"><Icon.compass /></span>Browse
+        <button className={`tab ${tab === 'search' ? 'active' : ''}`} onClick={() => setTab('search')}>
+          <span className="tab-icon-wrap"><Icon.search /></span>Search
         </button>
         <button className={`tab ${tab === 'watchlist' ? 'active' : ''}`} onClick={() => setTab('watchlist')}>
           <span className="tab-icon-wrap"><Icon.bookmark /></span>Watchlist
